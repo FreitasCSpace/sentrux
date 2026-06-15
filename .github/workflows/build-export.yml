@@ -37,9 +37,22 @@ jobs:
       - name: Smoke-check the new subcommand exists
         run: ./target/release/sentrux export --help || true
 
+      - name: Run export on a sample dir (validate real JSON shape)
+        run: |
+          ./target/release/sentrux export sentrux-bin/src > sample-export.json 2> export.log || { cat export.log; exit 1; }
+          echo "bytes: $(wc -c < sample-export.json)"
+          head -c 600 sample-export.json; echo
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: sentrux-linux-x86_64
           path: target/release/sentrux
+          if-no-files-found: error
+
+      - name: Upload sample JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-export-json
+          path: sample-export.json
           if-no-files-found: error
