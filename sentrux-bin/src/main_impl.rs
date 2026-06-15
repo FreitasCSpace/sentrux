@@ -90,6 +90,15 @@ enum Command {
         path: Option<String>,
     },
 
+    /// Export the full structural analysis (file tree + import/call edges +
+    /// per-file complexity + quality signal) as JSON to stdout. Lets external
+    /// tools render Sentrux's analysis without the GUI.
+    Export {
+        /// Directory to analyze
+        #[arg(default_value = ".")]
+        path: String,
+    },
+
     /// Start the MCP (Model Context Protocol) server for AI agent integration
     Mcp,
 
@@ -227,6 +236,9 @@ pub fn run() -> eframe::Result<()> {
         }
         Some(Command::Scan { path }) => {
             run_gui(path)
+        }
+        Some(Command::Export { path }) => {
+            std::process::exit(run_export(&path));
         }
         None => {
             run_gui(cli.path)
@@ -413,6 +425,46 @@ fn run_analytics(action: Option<AnalyticsAction>) {
                 let _ = std::fs::write(p, "1");
             }
             println!("Analytics are disabled.");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+/// Run a full scan and emit the structural analysis as JSON on stdout.
+/// The `snapshot` carries the file tree (per-file LOC / logic-lines / function
+/// count / language, plus per-function complexity) and the import / call /
+/// inheritance edge lists — everything an external visualizer needs.
+fn run_export(path: &str) -> i32 {
+    let root = std::path::Path::new(path);
+    if !root.is_dir() {
+        eprintln!("Error: not a directory: {path}");
+        return 1;
+    }
+    eprintln!("Scanning {path}...");
+    let result = match analysis::scanner::scan_directory(
+        path, None, None,
+        &cli_scan_limits(),
+        None,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Scan failed: {e}");
+            return 1;
+        }
+    };
+    let health = metrics::compute_health(&result.snapshot);
+    let out = serde_json::json!({
+        "quality_signal": health.quality_signal,
+        "snapshot": result.snapshot,
+    });
+    match serde_json::to_writer(std::io::stdout().lock(), &out) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("Export serialize failed: {e}");
+            1
         }
     }
 }
